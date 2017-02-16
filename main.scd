@@ -16,10 +16,32 @@
 // u - 0.02758
 
 
+// 0 at the end of the each title is a silence sample
+
 (
 fork {
-	var score, pattern, titles, samples, numOfSamples, synth,
-	loadedPercentage = 0, loadingIncr, buffer;
+	var initialScore, grushaScore, grushaPattern,
+	sampleChooserFunc, probs, songDur,
+	titles, samples;
+
+	// sample probabilities corresponding to letters
+	// (probability of a character in the article)
+	probs = Dictionary.new;
+	probs["grusha"] = [0.02015, 0.05987, 0.02758, 0.06327, 0.06094, 0.08167];
+	probs["random"] = [0.05987, 0.08167, 0.06749, 0.04253, 0.07507, 0.02406];
+	probs["module"] = [0.02406, 0.07507, 0.04253, 0.02758, 0.04025, 0.12702];
+	probs["beacon"] = [0.01492, 0.12702, 0.08167, 0.02782, 0.07507, 0.06749];
+
+	// calculate and add a non-match character probability
+	probs.keys.do({arg key;
+		probs[key].add(1-probs[key].sum);
+	});
+
+	s.sync;
+
+	//
+	// The sampler SynthDef
+	//
 
 	SynthDef("microscale-sampler", {arg buf, loop;
 		var out = PlayBuf.ar(2,
@@ -30,7 +52,8 @@ fork {
 		Out.ar(0, out);
 	}).load(s);
 
-	score = Score.new;
+	// score that contains all the buffers
+	initialScore = Score.new;
 
 	s.sync;
 
@@ -40,9 +63,6 @@ fork {
 	//
 	// load samples
 	//
-
-	// 4 tracks, 6 samples (4*6*6), 6 voices
-	loadingIncr = 100 / (titles.size * titles[0].size * 6);
 
 	s.sync;
 
@@ -54,41 +74,73 @@ fork {
 			// voices initialization
 			samples[item.asSymbol][n] = Dictionary.new;
 
-			item.do({arg letter;
+			// item++0 because of 0.aif — the silence sample
+			(item++0).do({arg letter;
 				// map letters per each voice to samples
 
 				var samplePath = ("samples"+/+item.asString+/+"voice-"++(n+1)+/+letter++".aif").resolveRelative;
 				var newBuf = Buffer.new;
 
-				score.add([0, newBuf.allocReadMsg(samplePath)]);
+				initialScore.add([0, newBuf.allocReadMsg(samplePath)]);
 				samples[item.asSymbol][n][letter.asSymbol] = newBuf;
-
-				s.sync;
-				(letter ++ ".aif of the voice-" ++ (n+1) + "of the track" + item + "is loaded into buffer").postln;
-
-				loadedPercentage = loadedPercentage + loadingIncr;
-				(loadedPercentage.round(0.01).asString ++ "%" + "loaded").postln;
 			});
 		});
 	});
 
 	s.sync;
 
+	//
+	// [grusha]
+	//
+
 	TempoClock.default.tempo = 60/59;
 
-	pattern = Pbind(\instrument, "microscale-sampler",
-		\loop, 0,
-		\buf, samples[\grusha][0]["grusha.choose".asSymbol],
-		\dur, Pseq([4], inf)
-	);
+	songDur = 1040;
 
-	pattern.asScore(16).score.do({arg m, n;
-		if(n > 0, {score.add(m)});
+	grushaPattern = Ppar([
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][0]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][1]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][2]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][3]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][4]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+
+		Pbind(\instrument, "microscale-sampler",
+			\buf, Pfunc({samples[\grusha][5]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
+			\dur, Pseq([4], songDur/2)
+		),
+	], 1);
+
+	grushaScore = grushaPattern.asScore(songDur);
+	initialScore.score.do({arg m, n;
+		grushaScore.add(m);
 	});
 
-	score.sort;
 
-	score.render("out-pleaaaase.aiff".resolveRelative);
+	grushaScore.sort;
+
+	//
+	// Rendering
+	//
+	grushaScore.recordNRT("temposc-trashme".resolveRelative, "grusha.aif".resolveRelative, duration: songDur+32);
 
 };
 
