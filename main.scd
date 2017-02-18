@@ -30,6 +30,7 @@ s.waitForBoot({
 		var tempOSCFileName = "temposc";
 		var currentDir = "".resolveRelative;
 		var cond = Condition.new;
+		var previousSampleHolder = Array.fill(6, {\0});
 
 		// sample probabilities corresponding to letters
 		// (probability of a character in the article)
@@ -104,6 +105,23 @@ s.waitForBoot({
 
 		s.sync;
 
+
+		sampleChooserFunc = {arg songTitle, voiceNumber;
+			var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
+
+			while({(newSampleSymbol == previousSampleHolder[voiceNumber]) && (newSampleSymbol !== \0)}, {
+				// look up for another letter while
+				// match is the same as the previous one,
+				var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
+				newSampleSymbol = songTitle.wchoose(matchingsOnlyProbs).asSymbol;
+			});
+
+			previousSampleHolder[voiceNumber] = newSampleSymbol;
+
+			// return buffer
+			samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+		};
+
 		//
 		// [grusha]
 		//
@@ -114,33 +132,33 @@ s.waitForBoot({
 
 		grushaPattern = Ppar([
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][0]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 0)}),
+				\dur, Pseq([6], songDur/2)
 			),
 
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][1]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 1)}),
+				\dur, Pseq([6], songDur/2)
 			),
 
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][2]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 2)}),
+				\dur, Pseq([6], songDur/2)
 			),
 
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][3]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 3)}),
+				\dur, Pseq([6], songDur/2)
 			),
 
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][4]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 4)}),
+				\dur, Pseq([6], songDur/2)
 			),
 
 			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({samples[\grusha][5]["grusha0".wchoose(probs["grusha"]).asSymbol]}),
-				\dur, Pseq([4], songDur/2)
+				\buf, Pfunc({sampleChooserFunc.value("grusha", 5)}),
+				\dur, Pseq([6], songDur/2)
 			)
 		], 1);
 
@@ -165,7 +183,7 @@ s.waitForBoot({
 		// Applying fadeout
 		//
 
-		// block thread (to wait for the non-faded file)
+		// block the thread (to wait for the non-faded file)
 		cond.hang;
 		"applying fadeout to [grusha]".postln;
 
@@ -193,7 +211,7 @@ s.waitForBoot({
 		fosynth = Synth.basicNew("microscale-fadeout");
 
 		foscore.add([0,
-			fosynth.newMsg(s, [\buf, fobuf, \fadeTime, 45, \fadeCurve, -2]);
+			fosynth.newMsg(s, [\buf, fobuf, \fadeTime, 30, \fadeCurve, -3]);
 		]);
 
 		// add ending
@@ -214,6 +232,7 @@ s.waitForBoot({
 			cond.unhang;
 		});
 
+		// block the thread while the rendering process
 		cond.hang;
 
 		Buffer.freeAll;
