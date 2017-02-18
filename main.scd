@@ -19,18 +19,32 @@
 // 0 at the end of the each title is a silence sample
 
 (
+var renderFunction, postMessageFunc;
+var window, textView, startButton;
+// GUI grid unit
+var ggU = 18;
+
+window = Window.new("microscale Renderer", Rect(400,300,ggU*21,ggU*18), false);
+
+textView = TextView.new;
+textView.editable = false;
+postMessageFunc = {arg message;
+	textView.string = textView.string ++ Date.getDate.hourStamp + "     " ++ message ++ "\n";
+};
+
+startButton = Button.new.states_([["Start"], ["Processing"]]);
+
+
+
+
+
+
 s.waitForBoot({
 	fork {
 		var initialScore, grushaScore, grushaPattern,
 		sampleChooserFunc, probs, songDur,
 		titles, samples;
-		// fadeout
-		var nonFadedBuf, bufDur, foscore, fobuf, fosynth;
-		// utility
-		var tempOSCFileName = "temposc";
 		var currentDir = "".resolveRelative;
-		var cond = Condition.new;
-		var previousSampleHolder = Array.fill(6, {\0});
 
 		// sample probabilities corresponding to letters
 		// (probability of a character in the article)
@@ -106,137 +120,188 @@ s.waitForBoot({
 		s.sync;
 
 
-		sampleChooserFunc = {arg songTitle, voiceNumber;
-			var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
 
-			while({(newSampleSymbol == previousSampleHolder[voiceNumber]) && (newSampleSymbol !== \0)}, {
-				// look up for another letter while
-				// match is the same as the previous one,
-				var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
-				newSampleSymbol = songTitle.wchoose(matchingsOnlyProbs).asSymbol;
+		renderFunction = {arg button;
+			Routine({
+				var cond = Condition.new;
+				// fadeout
+				var nonFadedBuf, bufDur, foscore, fobuf, fosynth;
+				var previousSampleHolder = Array.fill(6, {\0});
+				var tempOSCFileName = "temposc";
+
+				sampleChooserFunc = {arg songTitle, voiceNumber;
+					var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
+
+					while({(newSampleSymbol == previousSampleHolder[voiceNumber]) && (newSampleSymbol !== \0)}, {
+						// look up for another letter while
+						// match is the same as the previous one,
+						var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
+						newSampleSymbol = songTitle.wchoose(matchingsOnlyProbs).asSymbol;
+					});
+
+					previousSampleHolder[voiceNumber] = newSampleSymbol;
+
+					// return buffer
+					samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+				};
+
+				//
+				// [grusha]
+				//
+
+				postMessageFunc.value("generating score for [grusha]");
+
+				TempoClock.default.tempo = 60/59;
+
+				songDur = rrand(700, 732);
+
+				grushaPattern = Ppar([
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 0)}),
+						\dur, Pseq([6], songDur/2)
+					),
+
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 1)}),
+						\dur, Pseq([6], songDur/2)
+					),
+
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 2)}),
+						\dur, Pseq([6], songDur/2)
+					),
+
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 3)}),
+						\dur, Pseq([6], songDur/2)
+					),
+
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 4)}),
+						\dur, Pseq([6], songDur/2)
+					),
+
+					Pbind(\instrument, "microscale-sampler",
+						\buf, Pfunc({sampleChooserFunc.value("grusha", 5)}),
+						\dur, Pseq([6], songDur/2)
+					)
+				], 1);
+
+				grushaScore = grushaPattern.asScore(songDur);
+				initialScore.score.do({arg m, n;
+					if(n > 0, {grushaScore.add(m)});
+				});
+
+				grushaScore.sort;
+
+				//
+				// Rendering
+				//
+
+				postMessageFunc.value("rendering [grusha]");
+				grushaScore.recordNRT(currentDir++tempOSCFileName, currentDir++"grusha-without-fade.aif", sampleRate: 44100, duration: songDur+32, action: {
+					// unblock thread when finished
+					cond.unhang;
+				});
+
+				//
+				// Applying fadeout
+				//
+
+				// block the thread (to wait for the non-faded file)
+				cond.hang;
+				postMessageFunc.value("applying fadeout to [grusha]");
+
+				// reset tempo clock to start fade in the right position
+				TempoClock.default.tempo = 1;
+
+				// initialize non-faded buffer just for getting the song duration
+				nonFadedBuf = Buffer.read(s, currentDir++"grusha-without-fade.aif", action: {
+					// unblock thread
+					cond.unhang;
+				});
+				// stop thread while buffer is initialising
+				cond.hang;
+				// getting buffer duration
+				bufDur = nonFadedBuf.duration;
+				// freeing the buffer
+				nonFadedBuf.free;
+
+				// Setting up the score
+				foscore = Score.new;
+				fobuf = Buffer.new;
+
+				foscore.add([0, fobuf.allocReadMsg(currentDir++"grusha-without-fade.aif";)]);
+
+				fosynth = Synth.basicNew("microscale-fadeout");
+
+				foscore.add([0,
+					fosynth.newMsg(s, [\buf, fobuf, \fadeTime, 30, \fadeCurve, -3]);
+				]);
+
+				// add ending
+				foscore.add([bufDur+2, 0]);
+
+				foscore.sort;
+
+				// render the score
+				foscore.recordNRT(currentDir++tempOSCFileName, currentDir++"grusha.aif", sampleRate: 44100, action: {
+					// remove the temp osc file
+					("rm"+currentDir++tempOSCFileName).unixCmd;
+					// remove the non-faded file
+					("rm"+currentDir++"grusha-without-fade.aif";).unixCmd;
+
+					// unblock the thread
+					cond.unhang;
+				});
+
+				// block the thread while the rendering process
+				cond.hang;
+
+				postMessageFunc.value("[grusha] is generated as grusha.aif");
+
+				button.valueAction = 0;
+
+				Buffer.freeAll;
 			});
-
-			previousSampleHolder[voiceNumber] = newSampleSymbol;
-
-			// return buffer
-			samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
 		};
-
-		//
-		// [grusha]
-		//
-
-		TempoClock.default.tempo = 60/59;
-
-		songDur = rrand(700, 732);
-
-		grushaPattern = Ppar([
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 0)}),
-				\dur, Pseq([6], songDur/2)
-			),
-
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 1)}),
-				\dur, Pseq([6], songDur/2)
-			),
-
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 2)}),
-				\dur, Pseq([6], songDur/2)
-			),
-
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 3)}),
-				\dur, Pseq([6], songDur/2)
-			),
-
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 4)}),
-				\dur, Pseq([6], songDur/2)
-			),
-
-			Pbind(\instrument, "microscale-sampler",
-				\buf, Pfunc({sampleChooserFunc.value("grusha", 5)}),
-				\dur, Pseq([6], songDur/2)
-			)
-		], 1);
-
-		grushaScore = grushaPattern.asScore(songDur);
-		initialScore.score.do({arg m, n;
-			if(n > 0, {grushaScore.add(m)});
-		});
-
-		grushaScore.sort;
-
-		//
-		// Rendering
-		//
-
-		"[grusha] started to render".postln;
-		grushaScore.recordNRT(tempOSCFileName.resolveRelative, "grusha-without-fade.aif".resolveRelative, sampleRate: 44100, duration: songDur+32, action: {
-			// unblock thread when finished
-			cond.unhang;
-		});
-
-		//
-		// Applying fadeout
-		//
-
-		// block the thread (to wait for the non-faded file)
-		cond.hang;
-		"applying fadeout to [grusha]".postln;
-
-		// reset tempo clock to start fade in the right position
-		TempoClock.default.tempo = 1;
-
-		// initialize non-faded buffer just for getting the song duration
-		nonFadedBuf = Buffer.read(s, "grusha-without-fade.aif".resolveRelative, action: {
-			// unblock thread
-			cond.unhang;
-		});
-		// stop thread while buffer is initialising
-		cond.hang;
-		// getting buffer duration
-		bufDur = nonFadedBuf.duration;
-		// freeing the buffer
-		nonFadedBuf.free;
-
-		// Setting up the score
-		foscore = Score.new;
-		fobuf = Buffer.new;
-
-		foscore.add([0, fobuf.allocReadMsg(currentDir++"grusha-without-fade.aif";)]);
-
-		fosynth = Synth.basicNew("microscale-fadeout");
-
-		foscore.add([0,
-			fosynth.newMsg(s, [\buf, fobuf, \fadeTime, 30, \fadeCurve, -3]);
-		]);
-
-		// add ending
-		foscore.add([bufDur+2, 0]);
-
-		foscore.sort;
-
-		// render the score
-		foscore.recordNRT(tempOSCFileName.resolveRelative, "grusha.aif".resolveRelative, sampleRate: 44100, action: {
-			// remove the temp osc file
-			("rm"+currentDir++tempOSCFileName).unixCmd;
-			// remove the non-faded file
-			("rm"+currentDir++"grusha-without-fade.aif";).unixCmd;
-
-			"[grusha] is generated as grusha.aif".postln;
-
-			// unblock the thread
-			cond.unhang;
-		});
-
-		// block the thread while the rendering process
-		cond.hang;
-
-		Buffer.freeAll;
 	};
 });
+
+
+startButton.action = {arg butt;
+	var n = 0, processingIndicationRout;
+
+	processingIndicationRout = Routine({
+		loop{
+			n = (n + 1)%4;
+			window.name = window.name ++ ".";
+			if(n == 0, {
+				window.name = "Processing";
+			});
+			0.25.wait;
+		}
+	});
+
+	if(butt.value == 1, {
+		// processing indication
+		window.name = "Processing";
+		butt.enabled = false;
+
+		AppClock.play(processingIndicationRout);
+
+		// render function
+		AppClock.play(renderFunction.value(butt));
+	}, {
+		processingIndicationRout.stop;
+		AppClock.clear;
+		butt.enabled = true;
+		window.name = "microscale Renderer";
+	});
+};
+
+window.layout = VLayout(textView, startButton);
+
+window.front;
 
 )
