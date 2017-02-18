@@ -19,12 +19,15 @@
 // 0 at the end of the each title is a silence sample
 
 (
-var renderFunction, postMessageFunc;
 var window, textView, startButton;
+var choosePathDialog, choosePathAlert, msg;
+var currentDir;
+var renderFunction, postMessageFunc;
+
 // GUI grid unit
 var ggU = 18;
 
-window = Window.new("microscale Renderer", Rect(400,300,ggU*21,ggU*18), false);
+window = Window.new("microscale Renderer", Rect((Window.screenBounds.width/2)-(ggU*21/2),300,ggU*21,ggU*18), false);
 
 textView = TextView.new;
 textView.editable = false;
@@ -34,17 +37,14 @@ postMessageFunc = {arg message;
 
 startButton = Button.new.states_([["Start"], ["Processing"]]);
 
-
-
-
-
+choosePathAlert = Window.new("?",  Rect(Window.screenBounds.width/2-100, 400, 200, 100),false);
+choosePathAlert.userCanClose = false;
 
 s.waitForBoot({
 	fork {
 		var initialScore, grushaScore, grushaPattern,
 		sampleChooserFunc, probs, songDur,
 		titles, samples;
-		var currentDir = "".resolveRelative;
 
 		// sample probabilities corresponding to letters
 		// (probability of a character in the article)
@@ -128,6 +128,19 @@ s.waitForBoot({
 				var nonFadedBuf, bufDur, foscore, fobuf, fosynth;
 				var previousSampleHolder = Array.fill(6, {\0});
 				var tempOSCFileName = "temposc";
+
+
+
+
+
+
+
+
+
+
+				// если луп, то просто вместо тишины возвращает предыдуший сэмпл
+
+
 
 				sampleChooserFunc = {arg songTitle, voiceNumber;
 					var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
@@ -302,6 +315,30 @@ startButton.action = {arg butt;
 
 window.layout = VLayout(textView, startButton);
 
-window.front;
+
+// choose path alert
+choosePathAlert.layout = VLayout(
+
+	{var msg = StaticText.new;
+		msg.string = "Choose a directory to where to save the output files";
+		msg;
+	}.value(),
+
+	{var button = Button.new;
+		button.states = [["Choose"]];
+
+		button.action = {arg butt;
+			choosePathDialog = FileDialog.new({arg path;
+				choosePathAlert.close;
+				currentDir = path;
+				currentDir = currentDir[0]++"/";
+				window.front;
+			}, {}, 2);
+		};
+		button;
+	}.value()
+);
+
+choosePathAlert.front;
 
 )
