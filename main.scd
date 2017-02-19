@@ -26,6 +26,7 @@ var window, textView, startButton;
 var choosePathDialog, choosePathAlert, msg;
 var currentDir;
 var renderMicroscale, postMessageFunc;
+var editionNum = 0;
 
 // GUI grid unit
 var ggU = 18;
@@ -319,7 +320,7 @@ s.waitForBoot({
 
 		// ending render function
 		renderMicroscale = {arg button;
-			var grushaDur, randomDur;
+			var grushaDur, randomDur, moduleDur, beaconDur;
 			//
 			// Patterns
 			//
@@ -380,15 +381,6 @@ s.waitForBoot({
 
 			// set initial samples
 			previousSampleHolder["random"][1] = \r;
-			previousSampleHolder["random"][4] = \r;
-
-			// pseq а в нем если выход 0, то по порядку, иначе
-			// играть попавшийся... или все время по порядку
-			// здесь зависит от того, как я сделал в вебе
-			// вообще задумывал по порядку все-время, но с
-			// внесением изменений будет лучше
-			// тут вообще будет проще написать отдельную функцию
-			// к тому же это единичный случай во всем альбоме
 
 			Pdef(\random_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
@@ -425,15 +417,15 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					#[dur, buf], Pseq([
-
-						[16, samples[\random][4][\r]], // initial sample
-
-						Pfunc({
-							var output = sampleChooserFunc.value("random", 4, 16);
-							[output["dur"], output["buf"]];
-						})
-					], 1)
+					\buf, Pseq([
+						samples[\random][4][\r],
+						samples[\random][4][\a],
+						samples[\random][4][\n],
+						samples[\random][4][\d],
+						samples[\random][4][\o],
+						samples[\random][4][\m]
+					], inf),
+					\dur, 16
 				),
 
 				Pbind(\instrument, "microscale-sampler",
@@ -444,18 +436,157 @@ s.waitForBoot({
 				)
 			], randomDur));
 
+
+			//
+			// [module]
+			//
+			moduleDur = rrand(592, 688);
+
+			// set initial samples
+			previousSampleHolder["\module"][2] = \m;
+
+			Pdef(\module_pattern, Ppar([
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("module", 0, 8, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("module", 1, 8, onMatchDur: 48);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+
+						[32, samples[\module][2][\m]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("module", 2, 2, onMatchDur: 32);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("module", 3, 2, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("module", 4, 4, onMatchDur: 48);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("module", 5, 4, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				)
+			], moduleDur));
+
+			//
+			// [beacon]
+			//
+			beaconDur = rrand(816, 912);
+
+			// set initial samples
+			previousSampleHolder["beacon"][0] = \n;
+			previousSampleHolder["beacon"][1] = \b;
+			previousSampleHolder["beacon"][5] = \b;
+
+			Pdef(\beacon_pattern, Ppar([
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+						[32, samples[\beacon][0][\n]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("beacon", 0, 32, true);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+						[8, samples[\beacon][1][\b]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("beacon", 1, 8, true);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("beacon", 2, 16, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("beacon", 3, 2, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("beacon", 4, 4, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+						[16, samples[\beacon][5][\b]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("beacon", 5, 16, true);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				)
+			], beaconDur));
+
 			// rendering routine
 			Routine({
 				var cond = Condition.new;
 				var sampleChooserFunc;
 
+				postMessageFunc.value("--------------------------------");
+
+				s.sync;
+
 				// renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "grusha", 30, {}).embedInStream;
 
 				s.sync;
 
-				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 52, "random", 16, {}).embedInStream;
+				// renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "random", 16, {}).embedInStream;
 
 				s.sync;
+
+				// renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "module", 8, {}).embedInStream;
+
+				s.sync;
+
+				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "beacon", 16, {}).embedInStream;
+
+				s.sync;
+
+				editionNum = editionNum + 1;
+				postMessageFunc.value("edition #"++editionNum+"is ready");
 
 				button.valueAction = 0;
 
