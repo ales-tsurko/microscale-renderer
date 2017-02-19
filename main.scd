@@ -19,6 +19,9 @@
 // 0 at the end of the each title is a silence sample
 
 (
+//
+// GUI
+//
 var window, textView, startButton;
 var choosePathDialog, choosePathAlert, msg;
 var currentDir;
@@ -124,11 +127,14 @@ SynthDef("microscale-fadeout", {arg buf, fadeTime, fadeCurve;
 	Out.ar(0, out);
 }).load(s);
 
-
+//
+// Engine
+//
 s.waitForBoot({
 	fork {
-		var initialScore, probs, titles, samples, renderPatternFunc, sampleChooserFunc, songDur;
-		var previousSampleHolder = Array.fill(6, {\0});
+		var initialScore, probs, titles, samples,
+		renderPatternFunc, sampleChooserFunc;
+		var previousSampleHolder = Dictionary.new;
 
 		// sample probabilities corresponding to letters
 		// (probability of a character in the article)
@@ -150,6 +156,11 @@ s.waitForBoot({
 
 		titles = ["grusha", "random", "module", "beacon"];
 		samples = Dictionary.new;
+
+		// initialize previous sample holder
+		titles.do({arg t;
+			previousSampleHolder[t] = Array.fill(6, {\0});
+		});
 
 		//
 		// load samples
@@ -182,7 +193,7 @@ s.waitForBoot({
 		// generates a score from a given pattern and renders it
 		// into a file
 		renderPatternFunc = {arg patternName, initialScore, tempoBPM,
-			songName, songDur, outputFileName, fadeTime = 30, onComplete;
+			songName, songDur, tailLength, outputFileName, fadeTime = 30, onComplete;
 
 			Routine({
 				var songScore, tempOSCFileName = "temposc";
@@ -191,14 +202,11 @@ s.waitForBoot({
 				var cond = Condition.new;
 
 				// set tempo
-				TempoClock.default.tempo = 60/tempoBPM;
+				TempoClock.default.tempo = tempoBPM/60;
 
 				postMessageFunc.value("generating score for"+songName);
 
 				songScore = Pdef(patternName).asScore(songDur);
-				"bang".postln;
-				songScore.score.postln;
-				initialScore.postln;
 
 				initialScore.score.do({arg m, n;
 					if(n > 0, {songScore.add(m)});
@@ -209,9 +217,8 @@ s.waitForBoot({
 				//
 				// Rendering
 				//
-
 				postMessageFunc.value("rendering"+songName);
-				songScore.recordNRT(currentDir++tempOSCFileName, currentDir++outputFileName++"-without-fade.aif", sampleRate: 44100, duration: songDur+32, action: {
+				songScore.recordNRT(currentDir++outputFileName++"_"++tempOSCFileName, currentDir++outputFileName++"-without-fade.aif", sampleRate: 44100, duration: songDur+tailLength, action: {
 					// unblock thread when finished
 					cond.unhang;
 				});
@@ -257,9 +264,9 @@ s.waitForBoot({
 				foscore.sort;
 
 				// render the score
-				foscore.recordNRT(currentDir++tempOSCFileName, currentDir++outputFileName++".aif", sampleRate: 44100, action: {
+				foscore.recordNRT(currentDir++outputFileName++"_"++tempOSCFileName, currentDir++outputFileName++".aif", sampleRate: 44100, action: {
 					// remove the temp osc file
-					("rm"+currentDir++tempOSCFileName).unixCmd;
+					("rm"+currentDir++outputFileName++"_"++tempOSCFileName).unixCmd;
 					// remove the non-faded file
 					("rm"+currentDir++outputFileName++"-without-fade.aif";).unixCmd;
 
@@ -270,35 +277,49 @@ s.waitForBoot({
 				// block the thread while the rendering process
 				cond.hang;
 
-				postMessageFunc.value(songName+"is generated as"+outputFileName++".aif");
+				postMessageFunc.value(songName+"has generated as"+outputFileName++".aif");
 
 				onComplete.value();
 			});
 		};
 
-
 		// function which responsible for choosing a sample
-		sampleChooserFunc = {arg songTitle, voiceNumber;
+		sampleChooserFunc = {arg songTitle, voiceNumber, dur, isLoop = false, onMatchDur = nil;
+			var outputDict = Dictionary.new;
 			var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
+			outputDict["dur"] = dur;
 
-			while({(newSampleSymbol == previousSampleHolder[voiceNumber]) && (newSampleSymbol !== \0)}, {
+			while({(newSampleSymbol == previousSampleHolder[songTitle][voiceNumber]) && (newSampleSymbol !== \0) && isLoop.not}, {
 				// look up for another letter while
 				// match is the same as the previous one,
 				var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
 				newSampleSymbol = songTitle.wchoose(matchingsOnlyProbs).asSymbol;
 			});
 
-			previousSampleHolder[voiceNumber] = newSampleSymbol;
+			if(onMatchDur.notNil && (newSampleSymbol !== \0), {
+				outputDict["dur"] = onMatchDur;
+			});
 
-			// return buffer
-			samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+			if(isLoop, {
+				if(newSampleSymbol == \0, {
+					newSampleSymbol = previousSampleHolder[songTitle][voiceNumber];
+				}, {
+					previousSampleHolder[songTitle][voiceNumber] = newSampleSymbol;
+				});
+			}, {
+				previousSampleHolder[songTitle][voiceNumber] = newSampleSymbol;
+			});
+
+			// assign buffer
+			outputDict["buf"] = samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+
+			// return
+			outputDict;
 		};
-
-
-
 
 		// ending render function
 		renderMicroscale = {arg button;
+			var grushaDur, randomDur;
 			//
 			// Patterns
 			//
@@ -306,45 +327,133 @@ s.waitForBoot({
 			//
 			// [grusha]
 			//
-			songDur = rrand(700, 732);
+			grushaDur = rrand(700, 732);
 
 			Pdef(\grusha_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 0)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 0, 6);
+						[output["dur"], output["buf"]];
+					})
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 1)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 1, 6);
+						[output["dur"], output["buf"]];
+					})
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 2)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 2, 6);
+						[output["dur"], output["buf"]];
+					})
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 3)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 3, 6);
+						[output["dur"], output["buf"]];
+					})
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 4)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 4, 6);
+						[output["dur"], output["buf"]];
+					})
 				),
 
 				Pbind(\instrument, "microscale-sampler",
-					\buf, Pfunc({sampleChooserFunc.value("grusha", 5)}),
-					\dur, Pseq([6], songDur/2)
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("grusha", 5, 6);
+						[output["dur"], output["buf"]];
+					})
 				)
-			], 1));
+			], grushaDur));
 
+			//
+			// [random]
+			//
+			randomDur = rrand(816, 912);
+
+			// set initial samples
+			previousSampleHolder["random"][1] = \r;
+			previousSampleHolder["random"][4] = \r;
+
+			// pseq а в нем если выход 0, то по порядку, иначе
+			// играть попавшийся... или все время по порядку
+			// здесь зависит от того, как я сделал в вебе
+			// вообще задумывал по порядку все-время, но с
+			// внесением изменений будет лучше
+			// тут вообще будет проще написать отдельную функцию
+			// к тому же это единичный случай во всем альбоме
+
+			Pdef(\random_pattern, Ppar([
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("random", 0, 4, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+
+						[16, samples[\random][1][\r]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("random", 1, 16, true);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("random", 2, 4, onMatchDur: 32);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("random", 3, 8);
+						[output["dur"], output["buf"]];
+					})
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pseq([
+
+						[16, samples[\random][4][\r]], // initial sample
+
+						Pfunc({
+							var output = sampleChooserFunc.value("random", 4, 16);
+							[output["dur"], output["buf"]];
+						})
+					], 1)
+				),
+
+				Pbind(\instrument, "microscale-sampler",
+					#[dur, buf], Pfunc({
+						var output = sampleChooserFunc.value("random", 5, 2, onMatchDur: 28);
+						[output["dur"], output["buf"]];
+					})
+				)
+			], randomDur));
+
+			// rendering routine
 			Routine({
 				var cond = Condition.new;
 				var sampleChooserFunc;
 
-				renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", songDur, "grusha", 30, {}).embedInStream;
+				// renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "grusha", 30, {}).embedInStream;
+
+				s.sync;
+
+				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 52, "random", 16, {}).embedInStream;
 
 				s.sync;
 
@@ -356,6 +465,7 @@ s.waitForBoot({
 
 		s.sync;
 
+		// starting the GUI
 		choosePathAlert.front;
 	};
 });
