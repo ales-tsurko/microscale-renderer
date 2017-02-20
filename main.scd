@@ -26,23 +26,28 @@ var window, textView, startButton;
 var choosePathDialog, choosePathAlert, msg;
 var currentDir;
 var renderMicroscale, postMessageFunc;
-var editionNum = 0;
+var editionNumberBox, editionNumberLabel;
+var burnCDCheckBox, burnCDSpeedMenu, burnCDLabel, burnCDSpeedLabel;
 
 // GUI grid unit
 var ggU = 18;
 
-window = Window.new("microscale Renderer", Rect((Window.screenBounds.width/2)-(ggU*21/2),300,ggU*21,ggU*18), false);
+//
+// main window
+//
 
+// window
+window = Window.new("microscale Renderer", Rect((Window.screenBounds.width/2)-(ggU*25/2),300,ggU*25,ggU*18), false);
+
+// post view
 textView = TextView.new;
 textView.editable = false;
 postMessageFunc = {arg message;
 	textView.string = textView.string ++ Date.getDate.hourStamp + "     " ++ message ++ "\n";
 };
 
+// the start button
 startButton = Button.new.states_([["Start"], ["Processing"]]);
-
-choosePathAlert = Window.new("?",  Rect(Window.screenBounds.width/2-100, 400, 200, 100),false);
-choosePathAlert.userCanClose = false;
 
 startButton.action = {arg butt;
 	var n = 0, processingIndicationRout;
@@ -61,7 +66,11 @@ startButton.action = {arg butt;
 	if(butt.value == 1, {
 		// processing indication
 		window.name = "Processing";
+
 		butt.enabled = false;
+		editionNumberBox.enabled = false;
+		burnCDCheckBox.enabled = false;
+		burnCDSpeedMenu.enabled = false;
 
 		AppClock.play(processingIndicationRout);
 
@@ -71,14 +80,64 @@ startButton.action = {arg butt;
 		processingIndicationRout.stop;
 		AppClock.clear;
 		butt.enabled = true;
+		editionNumberBox.enabled = true;
+		burnCDCheckBox.enabled = true;
+		burnCDSpeedMenu.enabled = true;
 		window.name = "microscale Renderer";
 	});
 };
 
-window.layout = VLayout(textView, startButton);
+// CD-related
+burnCDSpeedMenu = PopUpMenu.new;
+burnCDSpeedMenu.items = ["1x", "4x", "8x", "16x", "32x", "48x", "52x"];
+
+burnCDCheckBox = CheckBox.new;
+
+burnCDLabel = StaticText.new;
+burnCDLabel.string = "Burn CD";
+
+burnCDSpeedLabel = StaticText.new;
+burnCDSpeedLabel.string = "Burning speed";
+
+// edition number box
+editionNumberBox = NumberBox.new;
+
+editionNumberBox.value = 1;
+editionNumberBox.step = 1;
+editionNumberBox.decimals = 0;
+editionNumberBox.clipLo = 1;
+
+// edition number label
+editionNumberLabel = StaticText.new;
+editionNumberLabel.string = "Edition number";
+// editionNumberLabel.align = \right;
+
+// layout
+window.layout = VLayout(
+	HLayout(burnCDLabel,
+		burnCDCheckBox,
+		nil,
+		burnCDSpeedLabel,
+		burnCDSpeedMenu
+	),
+
+	textView,
+
+	HLayout([editionNumberLabel, stretch: 2],
+		[editionNumberBox, stretch: 1],
+		[nil, stretch: 2],
+		[startButton, stretch: 2]
+	)
+);
 
 
+//
 // choose path alert
+//
+
+choosePathAlert = Window.new("?",  Rect(Window.screenBounds.width/2-100, 400, 200, 100),false);
+choosePathAlert.userCanClose = false;
+
 choosePathAlert.layout = VLayout(
 
 	{var msg = StaticText.new;
@@ -267,9 +326,10 @@ s.waitForBoot({
 				// render the score
 				foscore.recordNRT(currentDir++outputFileName++"_"++tempOSCFileName, currentDir++outputFileName++".aif", sampleRate: 44100, action: {
 					// remove the temp osc file
-					("rm"+currentDir++outputFileName++"_"++tempOSCFileName).unixCmd;
+					("rm"+currentDir++outputFileName++"_"++tempOSCFileName).systemCmd;
+
 					// remove the non-faded file
-					("rm"+currentDir++outputFileName++"-without-fade.aif";).unixCmd;
+					("rm"+currentDir++outputFileName++"-without-fade.aif").systemCmd;
 
 					// unblock the thread
 					cond.unhang;
@@ -565,28 +625,42 @@ s.waitForBoot({
 				var cond = Condition.new;
 				var sampleChooserFunc;
 
-				postMessageFunc.value("--------------------------------");
+				postMessageFunc.value("-----------------------------------------");
 
 				s.sync;
 
-				// renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "grusha", 30, {}).embedInStream;
+				renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "001_grusha", 30, {}).embedInStream;
 
 				s.sync;
 
-				// renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "random", 16, {}).embedInStream;
+				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "002_random", 16, {}).embedInStream;
 
 				s.sync;
 
-				// renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "module", 8, {}).embedInStream;
+				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "003_module", 8, {}).embedInStream;
 
 				s.sync;
 
-				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "beacon", 16, {}).embedInStream;
+				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "004_beacon", 16, {}).embedInStream;
 
 				s.sync;
 
-				editionNum = editionNum + 1;
-				postMessageFunc.value("edition #"++editionNum+"is ready");
+				postMessageFunc.value("edition #"++editionNumberBox.value+"is ready");
+
+				s.sync;
+
+				if(burnCDCheckBox.value, {
+					var drutilOutput;
+					postMessageFunc.value("burn a CD with edition #"++editionNumberBox.value+"at"+burnCDSpeedMenu.item+"speed");
+					drutilOutput = "drutil".unixCmdGetStdOut;
+					postMessageFunc.value(drutilOutput);
+				});
+
+				s.sync;
+
+				postMessageFunc.value("edition #"++editionNumberBox.value+"done");
+
+				editionNumberBox.valueAction = editionNumberBox.value + 1;
 
 				button.valueAction = 0;
 
