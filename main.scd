@@ -24,7 +24,7 @@
 //
 var window, textView, startButton;
 var choosePathDialog, choosePathAlert, msg;
-var currentDir;
+var outputDir;
 var renderMicroscale, postMessageFunc;
 var editionNumberBox, editionNumberLabel;
 var burnCDCheckBox, burnCDSpeedMenu, burnCDLabel, burnCDSpeedLabel;
@@ -151,8 +151,8 @@ choosePathAlert.layout = VLayout(
 		button.action = {arg butt;
 			choosePathDialog = FileDialog.new({arg path;
 				choosePathAlert.close;
-				currentDir = path;
-				currentDir = currentDir[0]++"/";
+				outputDir = path;
+				outputDir = outputDir[0]++"/";
 				window.front;
 			}, {}, 2);
 		};
@@ -278,7 +278,7 @@ s.waitForBoot({
 				// Rendering
 				//
 				postMessageFunc.value("rendering"+songName);
-				songScore.recordNRT(currentDir++outputFileName++"_"++tempOSCFileName, currentDir++outputFileName++"-without-fade.aif", sampleRate: 44100, duration: songDur+tailLength, action: {
+				songScore.recordNRT(outputDir++outputFileName++"_"++tempOSCFileName, outputDir++outputFileName++"-without-fade.aif", sampleRate: 44100, duration: songDur+tailLength, action: {
 					// unblock thread when finished
 					cond.unhang;
 				});
@@ -295,7 +295,7 @@ s.waitForBoot({
 				TempoClock.default.tempo = 1;
 
 				// initialize non-faded buffer just for getting the song duration
-				nonFadedBuf = Buffer.read(s, currentDir++outputFileName++"-without-fade.aif", action: {
+				nonFadedBuf = Buffer.read(s, outputDir++outputFileName++"-without-fade.aif", action: {
 					// unblock thread
 					cond.unhang;
 				});
@@ -310,7 +310,7 @@ s.waitForBoot({
 				foscore = Score.new;
 				fobuf = Buffer.new;
 
-				foscore.add([0, fobuf.allocReadMsg(currentDir++outputFileName++"-without-fade.aif";)]);
+				foscore.add([0, fobuf.allocReadMsg(outputDir++outputFileName++"-without-fade.aif";)]);
 
 				fosynth = Synth.basicNew("microscale-fadeout");
 
@@ -324,12 +324,12 @@ s.waitForBoot({
 				foscore.sort;
 
 				// render the score
-				foscore.recordNRT(currentDir++outputFileName++"_"++tempOSCFileName, currentDir++outputFileName++".aif", sampleRate: 44100, action: {
+				foscore.recordNRT(outputDir++outputFileName++"_"++tempOSCFileName, outputDir++outputFileName++".aif", sampleRate: 44100, action: {
 					// remove the temp osc file
-					("rm"+currentDir++outputFileName++"_"++tempOSCFileName).systemCmd;
+					("rm"+outputDir++outputFileName++"_"++tempOSCFileName).systemCmd;
 
 					// remove the non-faded file
-					("rm"+currentDir++outputFileName++"-without-fade.aif").systemCmd;
+					("rm"+outputDir++outputFileName++"-without-fade.aif").systemCmd;
 
 					// unblock the thread
 					cond.unhang;
@@ -388,7 +388,7 @@ s.waitForBoot({
 			//
 			// [grusha]
 			//
-			grushaDur = rrand(700, 732);
+			grushaDur = rrand(752, 800);
 
 			Pdef(\grusha_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
@@ -500,7 +500,7 @@ s.waitForBoot({
 			//
 			// [module]
 			//
-			moduleDur = rrand(592, 688);
+			moduleDur = rrand(800, 832);
 
 			// set initial samples
 			previousSampleHolder["\module"][2] = \m;
@@ -557,7 +557,7 @@ s.waitForBoot({
 			//
 			// [beacon]
 			//
-			beaconDur = rrand(816, 912);
+			beaconDur = rrand(852, 912);
 
 			// set initial samples
 			previousSampleHolder["beacon"][0] = \n;
@@ -630,29 +630,29 @@ s.waitForBoot({
 				s.sync;
 
 				renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "001_grusha", 30, {}).embedInStream;
-
-				s.sync;
-
+				//
+				// s.sync;
+				//
 				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "002_random", 16, {}).embedInStream;
-
-				s.sync;
-
+				//
+				// s.sync;
+				//
 				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "003_module", 8, {}).embedInStream;
-
-				s.sync;
-
+				//
+				// s.sync;
+				//
 				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "004_beacon", 16, {}).embedInStream;
-
-				s.sync;
-
-				postMessageFunc.value("edition #"++editionNumberBox.value+"is ready");
+				//
+				// s.sync;
+				//
+				postMessageFunc.value("the render process of edition #"++editionNumberBox.value+"finished");
 
 				s.sync;
 
 				if(burnCDCheckBox.value, {
 					var drutilOutput;
 					postMessageFunc.value("burn a CD with edition #"++editionNumberBox.value+"at"+burnCDSpeedMenu.item+"speed");
-					drutilOutput = "drutil".unixCmdGetStdOut;
+					drutilOutput = ("drutil burn -audio -speed"+burnCDSpeedMenu.item+outputDir).unixCmdGetStdOut;
 					postMessageFunc.value(drutilOutput);
 				});
 
