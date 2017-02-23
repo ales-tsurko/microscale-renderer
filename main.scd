@@ -89,12 +89,12 @@ startButton.action = {arg butt;
 
 // CD-related
 burnCDSpeedMenu = PopUpMenu.new;
-burnCDSpeedMenu.items = ["1x", "4x", "8x", "16x", "32x", "48x", "52x"];
+burnCDSpeedMenu.items = ["1x", "4x", "8x", "24x", "48x", "52x"];
 
 burnCDCheckBox = CheckBox.new;
 
 burnCDLabel = StaticText.new;
-burnCDLabel.string = "Burn CD";
+burnCDLabel.string = "Burn CD after rendering";
 
 burnCDSpeedLabel = StaticText.new;
 burnCDSpeedLabel.string = "Burning speed";
@@ -123,8 +123,8 @@ window.layout = VLayout(
 
 	textView,
 
-	HLayout([editionNumberLabel, stretch: 2],
-		[editionNumberBox, stretch: 1],
+	HLayout([editionNumberBox, stretch: 1],
+		[editionNumberLabel, stretch: 2],
 		[nil, stretch: 2],
 		[startButton, stretch: 2]
 	)
@@ -168,21 +168,9 @@ choosePathAlert.layout = VLayout(
 // The sampler
 //
 
-SynthDef("microscale-sampler", {arg buf, loop;
-	var out = PlayBuf.ar(2,
-		buf,
-		BufRateScale.kr(buf),
-		loop: loop,
-		doneAction: 2);
-	Out.ar(0, out);
-}).load(s);
-
-//
-// The fadeout
-//
-SynthDef("microscale-fadeout", {arg buf, fadeTime, fadeCurve;
+SynthDef("microscale-sampler", {arg buf, fadeTime = 0.005, fadeCurve = -4, amp = 1;
 	var env, out;
-	env = EnvGen.ar(Env([0, 1, 1, 0], [0, (BufDur.kr(buf)-fadeTime), fadeTime], fadeCurve));
+	env = EnvGen.ar(Env([0, 1, 1, 0], [0, (BufDur.kr(buf)-fadeTime), fadeTime], fadeCurve), levelScale: amp);
 	out = PlayBuf.ar(2, buf, BufRateScale.kr(buf), doneAction: 2) * env;
 	Out.ar(0, out);
 }).load(s);
@@ -236,8 +224,7 @@ s.waitForBoot({
 				// voices initialization
 				samples[item.asSymbol][n] = Dictionary.new;
 
-				// item++0 because of 0.aif — the silence sample
-				(item++0).do({arg letter;
+				item.do({arg letter;
 					// map letters per each voice to samples
 					var samplePath = ("samples"+/+item.asString+/+"voice-"++(n+1)+/+letter++".aif").resolveRelative;
 					var newBuf = Buffer.new;
@@ -253,7 +240,7 @@ s.waitForBoot({
 		// generates a score from a given pattern and renders it
 		// into a file
 		renderPatternFunc = {arg patternName, initialScore, tempoBPM,
-			songName, songDur, tailLength, outputFileName, fadeTime = 30, onComplete;
+			songName, songDur, tailLength, outputFileName, fadeTime = 30, outAmp = 1, onComplete;
 
 			Routine({
 				var songScore, tempOSCFileName = "temposc";
@@ -312,10 +299,10 @@ s.waitForBoot({
 
 				foscore.add([0, fobuf.allocReadMsg(outputDir++outputFileName++"-without-fade.aif";)]);
 
-				fosynth = Synth.basicNew("microscale-fadeout");
+				fosynth = Synth.basicNew("microscale-sampler");
 
 				foscore.add([0,
-					fosynth.newMsg(s, [\buf, fobuf, \fadeTime, fadeTime, \fadeCurve, -3]);
+					fosynth.newMsg(s, [\buf, fobuf, \fadeTime, fadeTime, \fadeCurve, -3, \amp, outAmp]);
 				]);
 
 				// add ending
@@ -346,14 +333,14 @@ s.waitForBoot({
 
 		// function which responsible for choosing a sample
 		sampleChooserFunc = {arg songTitle, voiceNumber, dur, isLoop = false, onMatchDur = nil;
+			var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
 			var outputDict = Dictionary.new;
 			var newSampleSymbol = (songTitle++0).wchoose(probs[songTitle]).asSymbol;
 			outputDict["dur"] = dur;
 
-			while({(newSampleSymbol == previousSampleHolder[songTitle][voiceNumber]) && (newSampleSymbol !== \0) && isLoop.not}, {
+			while({((newSampleSymbol == previousSampleHolder[songTitle][voiceNumber]).and(newSampleSymbol !== \0)).and(isLoop.not)}, {
 				// look up for another letter while
-				// match is the same as the previous one,
-				var matchingsOnlyProbs = probs[songTitle].clipExtend(songTitle.size).normalizeSum;
+				// match is the same as the previous one
 				newSampleSymbol = songTitle.wchoose(matchingsOnlyProbs).asSymbol;
 			});
 
@@ -361,6 +348,7 @@ s.waitForBoot({
 				outputDict["dur"] = onMatchDur;
 			});
 
+			// if is loop
 			if(isLoop, {
 				if(newSampleSymbol == \0, {
 					newSampleSymbol = previousSampleHolder[songTitle][voiceNumber];
@@ -368,11 +356,18 @@ s.waitForBoot({
 					previousSampleHolder[songTitle][voiceNumber] = newSampleSymbol;
 				});
 			}, {
+				// if not loop, just assign new sample to the previous
 				previousSampleHolder[songTitle][voiceNumber] = newSampleSymbol;
 			});
 
-			// assign buffer
-			outputDict["buf"] = samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+			// if there is no match - make a rest, otherwise assign a sample
+			if(newSampleSymbol == \0, {
+				outputDict["dur"] = Rest(dur);
+				outputDict["buf"] = nil;
+			}, {
+				// assign buffer
+				outputDict["buf"] = samples[songTitle.asSymbol][voiceNumber][newSampleSymbol];
+			});
 
 			// return
 			outputDict;
@@ -388,10 +383,11 @@ s.waitForBoot({
 			//
 			// [grusha]
 			//
-			grushaDur = rrand(752, 800);
+			grushaDur = rrand(828, 868);
 
 			Pdef(\grusha_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 0, 6);
 						[output["dur"], output["buf"]];
@@ -399,6 +395,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 1, 6);
 						[output["dur"], output["buf"]];
@@ -406,6 +403,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 2, 6);
 						[output["dur"], output["buf"]];
@@ -413,6 +411,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 3, 6);
 						[output["dur"], output["buf"]];
@@ -420,6 +419,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 4, 6);
 						[output["dur"], output["buf"]];
@@ -427,6 +427,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("grusha", 5, 6);
 						[output["dur"], output["buf"]];
@@ -437,13 +438,14 @@ s.waitForBoot({
 			//
 			// [random]
 			//
-			randomDur = rrand(816, 912);
+			randomDur = rrand(800, 844);
 
 			// set initial samples
 			previousSampleHolder["random"][1] = \r;
 
 			Pdef(\random_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("random", 0, 4, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -451,6 +453,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pseq([
 
 						[16, samples[\random][1][\r]], // initial sample
@@ -463,6 +466,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("random", 2, 4, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -470,6 +474,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("random", 3, 8);
 						[output["dur"], output["buf"]];
@@ -477,6 +482,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					\buf, Pseq([
 						samples[\random][4][\r],
 						samples[\random][4][\a],
@@ -489,6 +495,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("random", 5, 2, onMatchDur: 28);
 						[output["dur"], output["buf"]];
@@ -500,13 +507,14 @@ s.waitForBoot({
 			//
 			// [module]
 			//
-			moduleDur = rrand(800, 832);
+			moduleDur = rrand(360, 388);
 
 			// set initial samples
 			previousSampleHolder["\module"][2] = \m;
 
 			Pdef(\module_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("module", 0, 8, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -514,6 +522,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("module", 1, 8, onMatchDur: 48);
 						[output["dur"], output["buf"]];
@@ -521,6 +530,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pseq([
 
 						[32, samples[\module][2][\m]], // initial sample
@@ -533,6 +543,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("module", 3, 2, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -540,6 +551,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("module", 4, 4, onMatchDur: 48);
 						[output["dur"], output["buf"]];
@@ -547,6 +559,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("module", 5, 4, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -557,7 +570,7 @@ s.waitForBoot({
 			//
 			// [beacon]
 			//
-			beaconDur = rrand(852, 912);
+			beaconDur = rrand(972, 1028);
 
 			// set initial samples
 			previousSampleHolder["beacon"][0] = \n;
@@ -566,6 +579,7 @@ s.waitForBoot({
 
 			Pdef(\beacon_pattern, Ppar([
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pseq([
 						[32, samples[\beacon][0][\n]], // initial sample
 
@@ -577,6 +591,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pseq([
 						[8, samples[\beacon][1][\b]], // initial sample
 
@@ -588,6 +603,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("beacon", 2, 16, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -595,6 +611,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("beacon", 3, 2, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -602,6 +619,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pfunc({
 						var output = sampleChooserFunc.value("beacon", 4, 4, onMatchDur: 32);
 						[output["dur"], output["buf"]];
@@ -609,6 +627,7 @@ s.waitForBoot({
 				),
 
 				Pbind(\instrument, "microscale-sampler",
+					\amp, 1,
 					#[dur, buf], Pseq([
 						[16, samples[\beacon][5][\b]], // initial sample
 
@@ -629,31 +648,59 @@ s.waitForBoot({
 
 				s.sync;
 
-				renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "001_grusha", 30, {}).embedInStream;
-				//
-				// s.sync;
-				//
-				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "002_random", 16, {}).embedInStream;
-				//
-				// s.sync;
-				//
-				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "003_module", 8, {}).embedInStream;
-				//
-				// s.sync;
-				//
-				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "004_beacon", 16, {}).embedInStream;
-				//
-				// s.sync;
-				//
-				postMessageFunc.value("the render process of edition #"++editionNumberBox.value+"finished");
+				renderPatternFunc.value(\grusha_pattern, initialScore, 59, "[grusha]", grushaDur, 32, "001_grusha", 30, 2.dbamp, {Buffer.freeAll}).embedInStream;
+
+				s.sync;
+
+				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "002_random", 16, 1.dbamp, {Buffer.freeAll}).embedInStream;
+
+				s.sync;
+
+				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "003_module", 8, 0.dbamp, {Buffer.freeAll}).embedInStream;
+
+				s.sync;
+
+				renderPatternFunc.value(\beacon_pattern, initialScore, 106, "[beacon]", beaconDur, 48, "004_beacon", 16, -2.dbamp, {Buffer.freeAll}).embedInStream;
+
+				s.sync;
+
+				postMessageFunc.value("the render process of edition #"++editionNumberBox.value+"has finished");
 
 				s.sync;
 
 				if(burnCDCheckBox.value, {
 					var drutilOutput;
 					postMessageFunc.value("burn a CD with edition #"++editionNumberBox.value+"at"+burnCDSpeedMenu.item+"speed");
-					drutilOutput = ("drutil burn -audio -speed"+burnCDSpeedMenu.item+outputDir).unixCmdGetStdOut;
-					postMessageFunc.value(drutilOutput);
+
+					drutilOutput = ("drutil status").unixCmdGetStdOut;
+
+					if(drutilOutput.containsi("Type: No Media Inserted") || drutilOutput.containsi("Sessions: 1"), {
+						postMessageFunc.value("Burn failed: The disc can't be burned. Please, insert a blank CD and try again.");
+					}, {
+						var writingSpeed = burnCDSpeedMenu.item;
+
+						if(drutilOutput.includesStr(""+writingSpeed).not, {
+							// find the closest possible speed and set it to writingSpeed
+							var match, selectedSpeedInt = burnCDSpeedMenu.item.asInteger;
+							match = drutilOutput.findRegexp("[0-9]+x");
+							match.do({arg item, n;
+								var newSpeedInt = item[1].asInteger;
+								// назначаем наименьшее значение, чтобы избежать
+								// случаев, если пользовательская частота ниже
+								// возможной (когда следующий тест не будет работать
+								// вовсе)
+								if(n == 0, {writingSpeed = item[1]});
+								if(newSpeedInt < selectedSpeedInt, {writingSpeed = item[1]});
+							});
+
+							postMessageFunc.value("The inserted CD doesn't support writing at"+burnCDSpeedMenu.item+". The CD will be written at the closes supported speed:"+writingSpeed);
+						});
+
+						s.sync;
+
+						drutilOutput = ("drutil burn -audio -speed"+writingSpeed+outputDir).unixCmdGetStdOut;
+						postMessageFunc.value("\n"++drutilOutput);
+					});
 				});
 
 				s.sync;
