@@ -15,9 +15,6 @@
 // s - 0.06327
 // u - 0.02758
 
-
-// 0 at the end of the each title is a silence sample
-
 (
 //
 // GUI
@@ -151,29 +148,13 @@ choosePathAlert.layout = VLayout(
 		button.action = {arg butt;
 			choosePathDialog = FileDialog.new({arg path;
 				choosePathAlert.close;
-				outputDir = path;
-				outputDir = outputDir[0]++"/";
+				outputDir = path[0]++"/";
 				window.front;
 			}, {}, 2);
 		};
 		button;
 	}.value()
 );
-
-//
-// SynthDefs
-//
-
-//
-// The sampler
-//
-
-SynthDef("microscale-sampler", {arg buf, fadeTime = 0.005, fadeCurve = -4, amp = 1;
-	var env, out;
-	env = EnvGen.ar(Env([0, 1, 1, 0], [0, (BufDur.kr(buf)-fadeTime), fadeTime], fadeCurve), levelScale: amp);
-	out = PlayBuf.ar(2, buf, BufRateScale.kr(buf), doneAction: 2) * env;
-	Out.ar(0, out);
-}).load(s);
 
 //
 // Engine
@@ -183,6 +164,25 @@ s.waitForBoot({
 		var initialScore, probs, titles, samples,
 		renderPatternFunc, sampleChooserFunc;
 		var previousSampleHolder = Dictionary.new;
+
+		s.sync;
+
+		//
+		// SynthDefs
+		//
+
+		//
+		// The sampler
+		//
+
+		SynthDef("microscale-sampler", {arg buf, fadeTime = 0.005, fadeCurve = -4, amp = 1;
+			var env, out;
+			env = EnvGen.ar(Env([0, 1, 1, 0], [0, (BufDur.kr(buf)-fadeTime), fadeTime], fadeCurve), levelScale: amp);
+			out = PlayBuf.ar(2, buf, BufRateScale.kr(buf), doneAction: 2) * env;
+			Out.ar(0, out);
+		}).load(s);
+
+		s.sync;
 
 		// sample probabilities corresponding to letters
 		// (probability of a character in the article)
@@ -313,10 +313,10 @@ s.waitForBoot({
 				// render the score
 				foscore.recordNRT(outputDir++outputFileName++"_"++tempOSCFileName, outputDir++outputFileName++".aif", sampleRate: 44100, action: {
 					// remove the temp osc file
-					("rm"+outputDir++outputFileName++"_"++tempOSCFileName).systemCmd;
+					File.delete(outputDir++outputFileName++"_"++tempOSCFileName);
 
 					// remove the non-faded file
-					("rm"+outputDir++outputFileName++"-without-fade.aif").systemCmd;
+					File.delete(outputDir++outputFileName++"-without-fade.aif");
 
 					// unblock the thread
 					cond.unhang;
