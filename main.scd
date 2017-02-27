@@ -25,9 +25,38 @@ var outputDir;
 var renderMicroscale, postMessageFunc;
 var editionNumberBox, editionNumberLabel;
 var burnCDCheckBox, burnCDSpeedMenu, burnCDLabel, burnCDSpeedLabel;
+var splashScreen, welcomeText, welcomeTextAnimation;
 
 // GUI grid unit
 var ggU = 18;
+
+//
+// Splash screen
+//
+splashScreen = Window.new("microscale", Rect(Window.screenBounds.width/2 - 100, 400, 200, 100), false);
+splashScreen.userCanClose = false;
+
+welcomeText = StaticText.new;
+welcomeText.string = "Please wait while the server is running";
+welcomeText.align = \center;
+splashScreen.layout = VLayout(welcomeText);
+
+welcomeTextAnimation = Routine({
+	var n = 0, originalString = welcomeText.string;
+
+		loop{
+			n = (n + 1)%4;
+			welcomeText.string = welcomeText.string ++ ".";
+			if(n == 0, {
+				welcomeText.string = originalString;
+			});
+			0.25.wait;
+		}
+});
+
+AppClock.play(welcomeTextAnimation);
+
+splashScreen.front;
 
 //
 // main window
@@ -716,6 +745,9 @@ s.waitForBoot({
 		};
 
 		s.sync;
+
+		// closing splash
+		AppClock.play(Routine({splashScreen.close}));
 
 		// starting the GUI
 		choosePathAlert.front;
