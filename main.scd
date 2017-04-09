@@ -681,11 +681,11 @@ s.waitForBoot({
 
 				s.sync;
 
-				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 48, "002_random", 16, 1.dbamp, {Buffer.freeAll}).embedInStream;
+				renderPatternFunc.value(\random_pattern, initialScore, 111, "[random]", randomDur, 34, "002_random", 16, 1.dbamp, {Buffer.freeAll}).embedInStream;
 
 				s.sync;
 
-				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 32, "003_module", 8, 0.dbamp, {Buffer.freeAll}).embedInStream;
+				renderPatternFunc.value(\module_pattern, initialScore, 63, "[module]", moduleDur, 24, "003_module", 8, 0.dbamp, {Buffer.freeAll}).embedInStream;
 
 				s.sync;
 
